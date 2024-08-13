@@ -1,0 +1,52 @@
+﻿<Page x:Class="MehLauncher.SettingsPage"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
+      xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
+      xmlns:local="clr-namespace:MehLauncher"
+      mc:Ignorable="d"
+      Title="Настройки" Height="181" Width="570">
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="Auto"/>
+        </Grid.ColumnDefinitions>
+
+        <!-- Row 0: RAM Selection -->
+        <TextBox Grid.Row="0" Grid.ColumnSpan="2" x:Name="RAM" Text="Выберите объем оперативной памяти" 
+                 Width="250" Foreground="#808080" IsReadOnly="True" BorderThickness="0" Margin="10"/>
+
+        <!-- Row 1: RAM Slider -->
+        <Slider Grid.Row="1" Grid.ColumnSpan="2" x:Name="sliderRAM" Minimum="4096" Maximum="16384" TickFrequency="1024" 
+                IsSnapToTickEnabled="True" IsEnabled="True" Width="450" Margin="10" ValueChanged="sliderRAM_ValueChanged"/>
+
+        <!-- Row 2: Folder Selection -->
+        <TextBox Grid.Row="2" Grid.Column="0" x:Name="Folder" Text="Выберите папку" Width="299" Foreground="#808080" 
+                 IsReadOnly="True" Height="17" BorderThickness="0" Margin="10"/>
+        <Button Grid.Row="2" Grid.Column="1" x:Name="btnFolder" Content="Выбрать папку" FontSize="14" Width="106" 
+                BorderThickness="0" Margin="10" Command="{Binding FolderCommand}"/>
+
+        <!-- Row 3: Client Version Selection -->
+        <TextBox Grid.Row="3" Grid.Column="0" x:Name="Version" Text="Выберите клиент" Foreground="#808080" 
+                 IsReadOnly="True" BorderThickness="0" Margin="10"/>
+        <Button Grid.Row="3" Grid.Column="1" x:Name="btnVersion" Content="Выбрать клиент" Command="{Binding VersionCommand}" 
+                Margin="10" Height="22" BorderThickness="0" Width="97"/>
+
+        <!-- Row 4: Action Buttons -->
+        <StackPanel Grid.Row="4" Grid.ColumnSpan="2" Orientation="Horizontal" HorizontalAlignment="Center" Margin="10,10,10,0">
+            <Button x:Name="btnClear" Content="Очистить папку" Margin="0,0,10,0" Command="{Binding ClearCommand}" BorderThickness="0" Visibility="Hidden"/>
+            <Button x:Name="btnBack" Content="Вернуться" Command="{Binding BackCommand}" VerticalAlignment="Center" 
+                    Margin="0,0,10,0" BorderThickness="0"/>
+            <Button x:Name="btnLogs" Content="Открыть логи" Command="{Binding LogsCommand}" BorderThickness="0"/>
+        </StackPanel>
+
+    </Grid>
+</Page>

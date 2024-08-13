@@ -1,0 +1,36 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.10.35027.167
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "MehLauncher", "MehLauncher\MehLauncher.csproj", "{2A99BC27-F28C-411A-AABB-1DB3246D851A}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{D95296C7-20D7-4C85-B845-A916265BE0B9}"
+	ProjectSection(SolutionItems) = preProject
+		.editorconfig = .editorconfig
+	EndProjectSection
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "MehLauncherWeb", "MehLauncherWeb\MehLauncherWeb.csproj", "{DC331306-294B-45AB-876F-50E36C6C6AE0}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{2A99BC27-F28C-411A-AABB-1DB3246D851A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{2A99BC27-F28C-411A-AABB-1DB3246D851A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{2A99BC27-F28C-411A-AABB-1DB3246D851A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{2A99BC27-F28C-411A-AABB-1DB3246D851A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{DC331306-294B-45AB-876F-50E36C6C6AE0}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{DC331306-294B-45AB-876F-50E36C6C6AE0}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{DC331306-294B-45AB-876F-50E36C6C6AE0}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{DC331306-294B-45AB-876F-50E36C6C6AE0}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {FF067738-7C54-47E3-8025-2A251985624B}
+	EndGlobalSection
+EndGlobal

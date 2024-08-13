@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "MehLauncher": {
+      "commandName": "Project",
+      "hotReloadEnabled": false
+    }
+  }
+}
