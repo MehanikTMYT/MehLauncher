@@ -12,12 +12,13 @@ using CmlLib.Core;
 using CmlLib.Core.Auth;
 using CmlLib.Core.ProcessBuilder;
 using System.Net.Http;
+using System.Diagnostics;
+using System.Windows;
 
 namespace MehLauncher
 {
     public partial class LoadingPage : Page
     {
-
         public ICommand LogsCommand { get; }
 
         private readonly ApiService _apiService;
@@ -29,7 +30,7 @@ namespace MehLauncher
             InitializeComponent();
             DataContext = this;
             _progressBar = ProgressBar;
-            _apiService = new ApiService(); 
+            _apiService = new ApiService();
             _directoryPath = Settings.Default.LastSelectedFolderPath;
 
             LogsCommand = new AsyncRelayCommand(ToLogsAsync);
@@ -39,7 +40,6 @@ namespace MehLauncher
 
         private async Task ToLogsAsync()
         {
-            // Переход на страницу логов
             var mainFrame = MainWindow.mainframe;
             await MainWindow.UpdateLogsFileAsync("Переход на страницу логов");
             mainFrame.Navigate(new LogsPage(this));
@@ -48,58 +48,66 @@ namespace MehLauncher
         private async Task VerifyClientAsync()
         {
             string clientName = Settings.Default.LastSelectedClient;
-
             SetStatus("Инициализация проверки клиента...\nПожалуйста, подождите.");
             await MainWindow.UpdateLogsFileAsync("Инициализация проверки клиента начата");
 
             try
             {
                 var clientFolderPath = Path.Combine(_directoryPath, clientName);
-
                 bool directoryExists = Directory.Exists(clientFolderPath);
-                await ProcessClientFilesAsync(clientName, clientFolderPath, directoryExists);
 
+                var files = await RetrieveFilesAsync(clientName, directoryExists);
+                if (files == null || !files.Any())
+                {
+                    await LogAndSetStatusAsync("Ошибка: Не удалось получить список файлов от сервера.", "Не удалось получить список файлов от сервера.");
+                    return;
+                }
+
+                await ProcessFilesAsync(files, clientFolderPath);
                 SetStatus("Проверка клиента завершена успешно.\nПроверьте логи для дополнительных сведений.");
                 await MainWindow.UpdateLogsFileAsync("Проверка клиента успешно завершена.");
-                await ClientCheckAsync(Settings.Default.LastSelectedClient, clientFolderPath);
+                await ClientCheckAsync(clientName, clientFolderPath);
             }
             catch (Exception ex)
             {
                 await HandleVerificationErrorAsync(ex);
             }
         }
-
-        
-
-        private void SetErrorStatus(string statusMessage, string logMessage)
+        private async Task<bool> ShowConfirmationDialogAsync(string message)
         {
-            SetStatus(statusMessage);
-            MainWindow.UpdateLogsFileAsync(logMessage).Wait();
+            // Реализуйте отображение сообщения пользователю и получение его ответа.
+            // Например, используя диалоговое окно в WPF:
+            var result = MessageBox.Show(message, "Подтверждение", MessageBoxButton.YesNo);
+            return result == MessageBoxResult.Yes;
         }
+
 
         private async Task<IEnumerable<FileData>> RetrieveFilesAsync(string clientName, bool withHashes)
         {
             SetStatus("Получение списка файлов от сервера...\nПожалуйста, подождите.");
-            return withHashes ? await _apiService.GetFilesWithHashesAsync(clientName) : await _apiService.GetFilesAsync(clientName);
-        }
 
+            // Получите список файлов с хешами
+            var files = withHashes
+                ? await _apiService.GetFilesWithHashesAsync(clientName)
+                : await _apiService.GetFilesAsync(clientName);
 
+            // Определите, нужно ли проверять папку "assets"
+            var needsAssetCheck = files.Any(file => file.FilePath.StartsWith("assets/", StringComparison.OrdinalIgnoreCase));
 
-        private async Task ProcessClientFilesAsync(string clientName, string clientFolderPath, bool verifyHashes)
-        {
-            var files = await RetrieveFilesAsync(clientName, verifyHashes);
-
-            if (files == null || !files.Any())
+            if (needsAssetCheck)
             {
-                SetErrorStatus("Не удалось получить список файлов от сервера.\nПроверьте соединение с сервером.", "Ошибка: Не удалось получить список файлов от сервера.");
-                return;
+                var userResponse = await ShowConfirmationDialogAsync("Проверка папки 'assets' обнаружена. Хотите продолжить проверку папки 'assets'?");
+                if (!userResponse)
+                {
+                    // Если пользователь не хочет проверять папку "assets", отфильтруйте файлы без "assets"
+                    files = files.Where(file => !file.FilePath.StartsWith("assets/", StringComparison.OrdinalIgnoreCase)).ToList();
+                }
             }
 
-            await ProcessFilesAsync(files, clientFolderPath, verifyHashes);
+            return files;
         }
 
-
-        private async Task ProcessFilesAsync(IEnumerable<FileData> files, string clientFolderPath, bool verifyHashes)
+        private async Task ProcessFilesAsync(IEnumerable<FileData> files, string clientFolderPath)
         {
             var totalFiles = files.Count();
             for (int i = 0; i < totalFiles; i++)
@@ -119,7 +127,7 @@ namespace MehLauncher
                 try
                 {
                     SetStatus($"Проверка файла \n{filePath}...\nПожалуйста, подождите.");
-                    await _apiService.DownloadFileAsync(filePath, verifyHashes ? fileData.Hash : null);
+                    await _apiService.DownloadFileAsync(filePath, fileData.Hash);
                     SetStatus($"Файл {filePath} проверен успешно.");
                 }
                 catch (Exception ex)
@@ -130,21 +138,16 @@ namespace MehLauncher
 
                 UpdateProgressBar((i + 1) * 100 / totalFiles);
             }
-          
         }
 
-        private async Task LogErrorAsync(string message)
-        {
+        private async Task LogErrorAsync(string message) =>
             await MainWindow.UpdateLogsFileAsync(message);
-        }
 
         private void EnsureDirectoryExists(string fileFullPath)
         {
             var directoryPath = Path.GetDirectoryName(fileFullPath);
             if (directoryPath != null && !Directory.Exists(directoryPath))
-            {
                 Directory.CreateDirectory(directoryPath);
-            }
         }
 
         private async Task HandleVerificationErrorAsync(Exception ex)
@@ -162,10 +165,9 @@ namespace MehLauncher
             });
         }
 
-        internal void SetStatus(string statusMessage)
-        {
+        internal void SetStatus(string statusMessage) =>
             StatusTextBlock.Text = statusMessage;
-        }
+
         internal async Task ClientCheckAsync(string clientName, string clientFolderPath)
         {
             SetStatus("Проверка клиента");
@@ -173,21 +175,17 @@ namespace MehLauncher
             string authlibPath = Path.Combine(clientFolderPath, "authlib.jar");
             string authlibUrl = "https://authlib-injector.yushi.moe/artifact/53/authlib-injector-1.2.5.jar";
 
-            // Проверка наличия файла authlib.jar
             if (!File.Exists(authlibPath))
             {
                 SetStatus("Скачивание authlib.jar...");
-
                 try
                 {
-                    using (HttpClient client = new HttpClient())
-                    using (HttpResponseMessage response = await client.GetAsync(authlibUrl))
-                    {
-                        response.EnsureSuccessStatusCode();
-                        byte[] fileBytes = await response.Content.ReadAsByteArrayAsync();
-                        await File.WriteAllBytesAsync(authlibPath, fileBytes);
-                        SetStatus("authlib.jar успешно скачан.");
-                    }
+                    using var client = new HttpClient();
+                    using var response = await client.GetAsync(authlibUrl);
+                    response.EnsureSuccessStatusCode();
+                    var fileBytes = await response.Content.ReadAsByteArrayAsync();
+                    await File.WriteAllBytesAsync(authlibPath, fileBytes);
+                    SetStatus("authlib.jar успешно скачан.");
                 }
                 catch (Exception ex)
                 {
@@ -195,77 +193,72 @@ namespace MehLauncher
                     return;
                 }
             }
-
+            SetStatus("Проверка клиента");
             string version = await _apiService.FetchVersionAsync(clientName);
             string authlib = $"-javaagent:{authlibPath}=http://mehhost.ru:1370/";
-            MinecraftLauncher launcher = new(new MinecraftPath(clientFolderPath));
+            var launcher = new MinecraftLauncher(new MinecraftPath(clientFolderPath));
 
-            // Обработчик события для изменения прогресса файлов
             launcher.FileProgressChanged += (sender, args) =>
             {
-                // Обновляем текст статуса
                 StatusProgressBarTextBlock.Dispatcher.Invoke(() =>
                 {
                     StatusProgressBarTextBlock.Text = $"Прогресс: {args.ProgressedTasks} из {args.TotalTasks} файлов";
                 });
 
-                // Обновляем значение ProgressBar
                 _progressBar.Dispatcher.Invoke(() =>
                 {
                     if (args.TotalTasks > 0)
                     {
-                        // Рассчитываем процент завершения
                         var progress = (double)args.ProgressedTasks / args.TotalTasks * 100;
                         _progressBar.Value = progress;
                     }
                 });
             };
 
-            // Обработчик события для изменения прогресса в байтах
             launcher.ByteProgressChanged += (sender, args) =>
             {
-                // Обновляем текст статуса
                 StatusProgressBarTextBlock.Dispatcher.Invoke(() =>
                 {
                     StatusProgressBarTextBlock.Text = $"{args.ProgressedBytes} байт из {args.TotalBytes} байт";
                 });
             };
 
-            // Устанавливаем клиент
             await launcher.InstallAsync(version);
-
-            MLaunchOption minecraftStartOptions = new()
+            string javaPath = Path.Combine(
+                Settings.Default.LastSelectedFolderPath,
+                Settings.Default.LastSelectedClient,
+                "runtime",
+                "windows-x64",
+                "java-runtime-delta",
+                "bin",
+                "javaw.exe"
+            );
+            var minecraftStartOptions = new MLaunchOption
             {
-                Session = new MSession($"{Settings.Default.username}", $"{Settings.Default.accessToken}", $"{Settings.Default.userUUID}"),
+                Session = new MSession(Settings.Default.username, Settings.Default.accessToken, Settings.Default.userUUID),
                 MaximumRamMb = Settings.Default.LastEnteredRAM,
                 MinimumRamMb = 4096,
-                GameLauncherName = $"{clientName} by MehLauncher",
-                JvmArgumentOverrides = new MArgument[]
-            {
-                new($"{authlib}"),
-                new("--add-opens"),
-                new("java.base/java.lang.invoke=ALL-UNNAMED")
-            },
+                GameLauncherName = $"{clientName}",
+                ExtraGameArguments = new MArgument[]
+                {
+                    new MArgument(authlib),
+                    new MArgument("--server")
+                }
             };
 
             var process = await launcher.BuildProcessAsync(version, minecraftStartOptions);
-
-            // Конфигурация запуска процесса
+            SetStatus("Проверка клиента завершена, запуск");
             process.StartInfo.CreateNoWindow = false;
             process.StartInfo.UseShellExecute = false;
             process.StartInfo.RedirectStandardError = true;
             process.StartInfo.RedirectStandardOutput = true;
             process.EnableRaisingEvents = true;
 
-            // Обработчики для чтения вывода и ошибок, с выводом в SetStatus
             process.ErrorDataReceived += (s, e) =>
             {
                 if (!string.IsNullOrEmpty(e.Data))
                 {
-                    StatusProgressBarTextBlock.Dispatcher.Invoke(() =>
-                    {
-                            SetStatus($"Ошибка: {e.Data}");
-                    });
+                    Dispatcher.Invoke(() => SetStatus($"Ошибка: {e.Data}"));
                 }
             };
 
@@ -273,19 +266,20 @@ namespace MehLauncher
             {
                 if (!string.IsNullOrEmpty(e.Data))
                 {
-                    StatusProgressBarTextBlock.Dispatcher.Invoke(() =>
-                    {
-                        SetStatus(e.Data);
-                    });
+                    Dispatcher.Invoke(() => SetStatus(e.Data));
                 }
             };
 
-            // Запуск процесса
             SetStatus("Запуск клиента");
             process.Start();
             process.BeginErrorReadLine();
             process.BeginOutputReadLine();
         }
 
+        private async Task LogAndSetStatusAsync(string logMessage, string statusMessage)
+        {
+            await LogErrorAsync(logMessage);
+            SetStatus(statusMessage);
+        }
     }
 }

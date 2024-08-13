@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Security.Cryptography;
@@ -16,11 +15,9 @@ namespace MehLauncher.Services
     public class ApiService
     {
         private readonly HttpClient _httpClient;
-        public readonly string _baseApiUrl = "http://mehhost.ru:5024/api/";
-        public readonly string _baseApiForDownloadUrl = "http://mehhost.ru:5100/";
-        private readonly string _authUrl = "http://mc-api.mehhost.ru/aurora/auth";
-        private readonly LoadingPage _loadingPage;
-
+        private const string BaseApiUrl = "http://mehhost.ru:5024/api/";
+        private const string BaseApiForDownloadUrl = "http://mehhost.ru:5100/";
+        private const string AuthUrl = "http://mc-api.mehhost.ru/aurora/auth";
 
         public ApiService()
         {
@@ -28,7 +25,7 @@ namespace MehLauncher.Services
             ServicePointManager.DefaultConnectionLimit = 256;
         }
 
-        private static readonly JsonSerializerOptions _jsonSerializerOptions = new JsonSerializerOptions
+        private static readonly JsonSerializerOptions JsonSerializerOptions = new()
         {
             PropertyNameCaseInsensitive = true
         };
@@ -37,115 +34,81 @@ namespace MehLauncher.Services
         {
             if (string.IsNullOrWhiteSpace(login) || string.IsNullOrWhiteSpace(password))
             {
-                var errorMessage = string.IsNullOrWhiteSpace(login)
-                    ? "Логин не может быть пустым!"
-                    : "Пароль не может быть пустым!";
-
-                await MainWindow.UpdateLogsFileAsync(errorMessage);
-                throw new ArgumentException(errorMessage);
+                string errorMessage = string.IsNullOrWhiteSpace(login) ? "Логин не может быть пустым!" : "Пароль не может быть пустым!";
+                await LogAndThrowAsync(errorMessage);
+                return default; 
             }
 
             var requestData = new { login, password };
             var content = new StringContent(JsonSerializer.Serialize(requestData), Encoding.UTF8, "application/json");
-
-            var response = await _httpClient.PostAsync(_authUrl, content);
+            var response = await _httpClient.PostAsync(AuthUrl, content);
             var responseContent = await response.Content.ReadAsStringAsync();
 
             if (response.StatusCode == HttpStatusCode.BadRequest)
             {
-                await MainWindow.UpdateLogsFileAsync("Некорректный запрос: " + responseContent);
-                throw new Exception("Некорректный запрос: " + responseContent);
+                await LogAndThrowAsync("Некорректный запрос: " + responseContent);
+                return default;
             }
 
             try
             {
-                ApiResponse<AuthResponseData>? apiResponse = JsonSerializer.Deserialize<ApiResponse<AuthResponseData>>(responseContent, new JsonSerializerOptions
+                var apiResponse = JsonSerializer.Deserialize<ApiResponse<AuthResponseData>>(responseContent, JsonSerializerOptions);
+                if (apiResponse == null || !apiResponse.Success)
                 {
-                    PropertyNameCaseInsensitive = true
-                });
-
-                if (apiResponse == null)
-                {
-                    await MainWindow.UpdateLogsFileAsync("Неизвестная ошибка в ответе API");
-                    throw new Exception("Неизвестная ошибка в ответе API");
-                }
-
-                if (!apiResponse.Success)
-                {
-                    var errorMessage = apiResponse.Error switch
+                    string errorMessage = apiResponse?.Error switch
                     {
                         "User not found" => "Пользователь не найден",
                         "Invalid password" => "Неверный пароль",
-                        _ => $"Ошибка: {apiResponse.Error}"
+                        _ => $"Ошибка: {apiResponse?.Error}"
                     };
-
-                    await MainWindow.UpdateLogsFileAsync(errorMessage);
-                    throw new Exception(errorMessage);
+                    await LogAndThrowAsync(errorMessage);
+                    return default;
                 }
 
-                Settings.Default.authResponse = apiResponse.Result.AccessToken;
-                Settings.Default.username = apiResponse.Result.Username;
-                Settings.Default.userUUID = apiResponse.Result.UserUUID;
-                Settings.Default.accessToken = apiResponse.Result.AccessToken;
-                Settings.Default.Save();
+                UpdateSettings(apiResponse.Result);
                 await MainWindow.UpdateLogsFileAsync("Авторизация успешна");
                 return apiResponse.Result;
             }
             catch (JsonException ex)
             {
-                await MainWindow.UpdateLogsFileAsync("Ошибка при десериализации ответа: " + ex.Message);
-                throw new Exception("Ошибка при десериализации ответа: " + ex.Message, ex);
+                await LogAndThrowAsync("Ошибка при десериализации ответа: " + ex.Message, ex);
+                return default; 
             }
         }
 
         public async Task DownloadFileAsync(string filePath, string? expectedHash)
         {
             if (string.IsNullOrWhiteSpace(filePath))
-            {
                 throw new ArgumentException("Путь к файлу не может быть пустым", nameof(filePath));
-            }
 
             var fileUrl = BuildFileUrl(filePath);
             var fileFullPath = BuildFileFullPath(filePath);
 
-            bool fileExists = File.Exists(fileFullPath);
-
-            // Если файл существует, проверяем его хеш
-            if (fileExists)
+            if (File.Exists(fileFullPath))
             {
                 try
                 {
                     var existingFileHash = await GetFileHashAsync(fileFullPath);
-
-                    // Если ожидаемый хеш не равен null и хеши совпадают, файл уже актуален
                     if (expectedHash != null && existingFileHash == expectedHash)
                     {
                         await MainWindow.UpdateLogsFileAsync($"Файл {fileFullPath} уже актуален. Хеш совпадает.");
-                        return; // Файл уже актуален, не скачиваем его заново
+                        return;
                     }
                 }
                 catch (Exception ex)
                 {
                     await MainWindow.UpdateLogsFileAsync($"Ошибка при проверке хеша существующего файла {fileFullPath}: {ex.Message}");
-                    // В случае ошибки проверки, переходим к загрузке файла
                 }
             }
 
-            // Если файл не существует или хеши не совпадают, скачиваем файл и проверяем его
-            _loadingPage.SetStatus($"Скачивание файла \n{filePath}...\nПожалуйста, подождите");
             await DownloadAndVerifyFileAsync(fileUrl, fileFullPath, expectedHash);
         }
 
-        private string BuildFileUrl(string filePath)
-        {
-            return new Uri(new Uri(_baseApiForDownloadUrl), $"{Settings.Default.LastSelectedClient}/{filePath}").ToString();
-        }
+        private string BuildFileUrl(string filePath) =>
+            $"{BaseApiForDownloadUrl}{Settings.Default.LastSelectedClient}/{filePath}";
 
-        private string BuildFileFullPath(string filePath)
-        {
-            filePath = filePath.Replace('/', Path.DirectorySeparatorChar);
-            return Path.Combine(Settings.Default.LastSelectedFolderPath, Settings.Default.LastSelectedClient, filePath);
-        }
+        private string BuildFileFullPath(string filePath) =>
+            Path.Combine(Settings.Default.LastSelectedFolderPath, Settings.Default.LastSelectedClient, filePath.Replace('/', Path.DirectorySeparatorChar));
 
         private async Task<string> GetFileHashAsync(string fileFullPath)
         {
@@ -156,40 +119,35 @@ namespace MehLauncher.Services
             }
             catch (Exception ex)
             {
-                await MainWindow.UpdateLogsFileAsync($"Ошибка при чтении файла для проверки хеша {fileFullPath}: {ex.Message}");
-                throw;
+                await LogAndThrowAsync($"Ошибка при чтении файла для проверки хеша {fileFullPath}: {ex.Message}", ex);
+                return null;
             }
         }
-
 
         private async Task DownloadAndVerifyFileAsync(string fileUrl, string fileFullPath, string? expectedHash)
         {
             EnsureDirectoryExists(fileFullPath);
-            
+
             try
             {
-                using (var response = await _httpClient.GetAsync(fileUrl))
+                using var response = await _httpClient.GetAsync(fileUrl);
+                response.EnsureSuccessStatusCode();
+                var fileBytes = await response.Content.ReadAsByteArrayAsync();
+
+                if (expectedHash != null)
                 {
-                    response.EnsureSuccessStatusCode();
-                    var fileBytes = await response.Content.ReadAsByteArrayAsync();
-
-                    // Если ожидаемый хеш не равен null, проверяем хеш скачанного файла
-                    if (expectedHash != null)
+                    var downloadedHash = CalculateHash(fileBytes);
+                    if (downloadedHash != expectedHash)
                     {
-                        var downloadedHash = CalculateHash(fileBytes);
-                        if (downloadedHash != expectedHash)
-                        {
-                            throw new InvalidOperationException($"Хеш файла {fileFullPath} не совпадает с ожидаемым. Ожидалось: {expectedHash}, получено: {downloadedHash}");
-                        }
+                        throw new InvalidOperationException($"Хеш файла {fileFullPath} не совпадает с ожидаемым. Ожидалось: {expectedHash}, получено: {downloadedHash}");
                     }
-
-                    await File.WriteAllBytesAsync(fileFullPath, fileBytes);
                 }
+
+                await File.WriteAllBytesAsync(fileFullPath, fileBytes);
             }
             catch (Exception ex)
             {
-                await MainWindow.UpdateLogsFileAsync($"Ошибка при скачивании файла с URL {fileUrl}: {ex.Message}");
-                throw;
+                await LogAndThrowAsync($"Ошибка при скачивании файла с URL {fileUrl}: {ex.Message}", ex);
             }
         }
 
@@ -197,87 +155,84 @@ namespace MehLauncher.Services
         {
             var directoryPath = Path.GetDirectoryName(fileFullPath);
             if (directoryPath != null && !Directory.Exists(directoryPath))
-            {
                 Directory.CreateDirectory(directoryPath);
-            }
         }
 
         private string CalculateHash(byte[] fileBytes)
         {
-            using (var sha256 = SHA256.Create())
-            {
-                var hash = sha256.ComputeHash(fileBytes);
-                return BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();
-            }
+            using var sha256 = SHA256.Create();
+            var hash = sha256.ComputeHash(fileBytes);
+            return BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();
         }
 
-        public async Task<List<FileData>> GetFilesWithHashesAsync(string clientName)
+        public async Task<List<FileData>> GetFilesAsync(string clientName, bool withHash = false)
         {
             if (string.IsNullOrWhiteSpace(clientName))
                 throw new ArgumentException("Имя клиента не может быть пустым", nameof(clientName));
 
-            var apiUrl = $"{_baseApiUrl}listFilesWithHashForClient?clientName={clientName}";
-
+            var apiUrl = $"{BaseApiUrl}listFiles{(withHash ? "WithHashForClient" : "ForClient")}?clientName={clientName}";
             return await SendGetRequestAsync<List<FileData>>(apiUrl);
-        }
-
-        public async Task<List<FileData>> GetFilesAsync(string clientName)
-        {
-            if (string.IsNullOrWhiteSpace(clientName))
-                throw new ArgumentException("Имя клиента не может быть пустым", nameof(clientName));
-
-            var apiUrl = $"{_baseApiUrl}listFilesForClient?clientName={clientName}";
-
-            var filePaths = await SendGetRequestAsync<List<string>>(apiUrl);
-            return filePaths.Select(filePath => new FileData { FilePath = filePath }).ToList();
         }
 
         private async Task<T> SendGetRequestAsync<T>(string apiUrl)
         {
             try
             {
-                using (var response = await _httpClient.GetAsync(apiUrl))
-                {
-                    response.EnsureSuccessStatusCode();
-                    var content = await response.Content.ReadAsStringAsync();
-                    return JsonSerializer.Deserialize<T>(content, _jsonSerializerOptions);
-                }
+                using var response = await _httpClient.GetAsync(apiUrl);
+                response.EnsureSuccessStatusCode();
+                var content = await response.Content.ReadAsStringAsync();
+                return JsonSerializer.Deserialize<T>(content, JsonSerializerOptions);
             }
             catch (Exception ex)
             {
-                await MainWindow.UpdateLogsFileAsync($"Ошибка при выполнении GET-запроса по адресу {apiUrl}: {ex.Message}");
-                throw;
+                await LogAndThrowAsync($"Ошибка при выполнении GET-запроса по адресу {apiUrl}: {ex.Message}", ex);
+                return default;
             }
         }
+        public async Task<List<FileData>> GetFilesWithHashesAsync(string clientName)
+        {
+            if (string.IsNullOrWhiteSpace(clientName))
+                throw new ArgumentException("Имя клиента не может быть пустым", nameof(clientName));
+
+            var apiUrl = $"{BaseApiUrl}listFilesWithHashForClient?clientName={clientName}";
+            return await SendGetRequestAsync<List<FileData>>(apiUrl);
+        }
+
         public async Task<string> FetchVersionAsync(string clientName)
         {
-            // Создать URL запроса
-            var requestUri = $"{_baseApiUrl}version?clientName={clientName}";
+            if (string.IsNullOrWhiteSpace(clientName))
+                throw new ArgumentException("Имя клиента не может быть пустым", nameof(clientName));
 
+            var requestUri = $"{BaseApiUrl}version?clientName={clientName}";
             try
             {
-                // Отправить GET-запрос
                 var response = await _httpClient.GetAsync(requestUri);
-
-                // Проверить статус-код ответа
                 response.EnsureSuccessStatusCode();
-
-                // Прочитать содержимое ответа
-                var version = await response.Content.ReadAsStringAsync();
-
-                return version;
-            }
-            catch (HttpRequestException ex)
-            {
-                Console.WriteLine($"Ошибка при выполнении запроса: {ex.Message}");
-                throw;
+                return await response.Content.ReadAsStringAsync();
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Неожиданная ошибка: {ex.Message}");
-                throw;
+                await LogAndThrowAsync($"Ошибка при выполнении запроса: {ex.Message}", ex);
+                return null;
             }
         }
 
+        private async Task LogAndThrowAsync(string message, Exception? ex = null)
+        {
+            await MainWindow.UpdateLogsFileAsync(message);
+            if (ex != null)
+                throw new Exception(message, ex);
+            else
+                throw new Exception(message);
+        }
+
+        private void UpdateSettings(AuthResponseData result)
+        {
+            Settings.Default.authResponse = result.AccessToken;
+            Settings.Default.username = result.Username;
+            Settings.Default.userUUID = result.UserUUID;
+            Settings.Default.accessToken = result.AccessToken;
+            Settings.Default.Save();
+        }
     }
 }
